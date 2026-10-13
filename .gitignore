@@ -1,0 +1,22 @@
+# Licensed or third-party data: never commit
+data/*
+!data/README.md
+
+# Generated outputs
+outputs/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

@@ -1,0 +1,39 @@
+"""Evaluation metrics with document-level (cluster) bootstrap confidence intervals."""
+import numpy as np
+from sklearn.metrics import average_precision_score, roc_auc_score
+
+from .config import N_BOOTSTRAP
+
+
+def _resample(groups, rng):
+    uniq = np.unique(groups)
+    index = {g: np.where(groups == g)[0] for g in uniq}
+    while True:
+        yield np.concatenate([index[g] for g in rng.choice(uniq, len(uniq))])
+
+
+def bootstrap_metrics(y, s, groups, rng, n=N_BOOTSTRAP):
+    """AUROC and AUPRC with 95% percentile intervals, resampling documents (posts or reviews)."""
+    y, s = np.asarray(y), np.asarray(s)
+    auc, ap, a, p = roc_auc_score(y, s), average_precision_score(y, s), [], []
+    draws = _resample(groups, rng)
+    for _ in range(n):
+        ix = next(draws)
+        if y[ix].min() == y[ix].max():
+            continue
+        a.append(roc_auc_score(y[ix], s[ix]))
+        p.append(average_precision_score(y[ix], s[ix]))
+    return dict(auroc=auc, auroc_lo=np.percentile(a, 2.5), auroc_hi=np.percentile(a, 97.5),
+                auprc=ap, auprc_lo=np.percentile(p, 2.5), auprc_hi=np.percentile(p, 97.5))
+
+
+def paired_auprc_difference(y, s1, s2, groups, rng, n=N_BOOTSTRAP):
+    """Mean and 95% interval of AUPRC(s1) - AUPRC(s2) over paired document-level resamples."""
+    y = np.asarray(y)
+    d, draws = [], _resample(groups, rng)
+    for _ in range(n):
+        ix = next(draws)
+        if y[ix].min() == y[ix].max():
+            continue
+        d.append(average_precision_score(y[ix], s1[ix]) - average_precision_score(y[ix], s2[ix]))
+    return float(np.mean(d)), float(np.percentile(d, 2.5)), float(np.percentile(d, 97.5))
