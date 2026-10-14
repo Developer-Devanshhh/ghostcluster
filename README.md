@@ -2,7 +2,7 @@
 
 Code for the manuscript
 
-> **Ghost Clusters: Detecting Patient-Reported Adverse Drug Event Expressions That Fall Outside Controlled Medical Terminologies**
+> **GhostCluster: Label-Free Triage of Patient-Reported Adverse Drug Event Expressions Poorly Covered by MedDRA**
 > Devansh Verma and Kalyanaraman Pattabiraman
 > School of Computer Science and Engineering, Vellore Institute of Technology, Vellore, India
 
@@ -44,8 +44,10 @@ scripts/
   04_robustness.py       triage effectiveness, review units and stability
   05_sensitivity.py      length, score definition, baselines, supervised transfer, operating points, label checks
   06_hidden_concepts.py  concept-removal simulation (PTs, HLTs, HLGTs) on SMM4H-2017 and CADEC
-  07_figures_tables.py   figures and LaTeX tables of the manuscript and Supplementary Information
-  run_all.py             runs steps 01-07 in order
+  07_additional_analyses.py  OOD scores, BM25 grid, drug transfer, learning curves, batch dependence,
+                         spelling normalisation, operating-point intervals, density strata
+  08_figures_tables.py   figures and LaTeX tables of the manuscript and Supplementary Information
+  run_all.py             runs steps 01-08 in order
 annotations/
   ghost_cluster_assessment.csv   authors' gap-type assessment of the most distant Ward Ghost Clusters
 data/README.md           how to obtain and place the data
@@ -83,9 +85,10 @@ correspond to the manuscript as follows.
 | `tables/tab_hidden.tex` | Table 8 |
 | `tables/tab_triage.tex` | Table 9 |
 | `tables/tab_ghosts.tex` | Table 10 |
-| `tables/supp_tables.tex` | Supplementary Tables S1-S12 |
+| `tables/supp_tables.tex` | Supplementary Tables S1-S20 |
 | `figures/fig_roc_pr.pdf` | Figure 2 |
-| `figures/fig_review_effort.pdf` | Figure 3 |
+| `figures/fig_learning_curve.pdf` | Figure 3 |
+| `figures/fig_review_effort.pdf` | Figure 4 |
 | `figures/fig_auprc_forest.pdf` | Supplementary Figure S1 |
 
 ### Expected key results
@@ -105,7 +108,7 @@ Intermediate results (`descriptives.json`, `results_*.csv`, per-mention scores) 
 Random seeds are fixed. UMAP is not guaranteed to be bit-identical across library versions or hardware;
 the pinned versions in `requirements.txt` were used for the reported results.
 
-On a laptop with an NVIDIA GeForce RTX 5060 (8 GB), the full run takes about one hour.
+On a laptop with an NVIDIA GeForce RTX 5060 (8 GB), the full run takes about one and a half hours.
 
 ## Citation
 

@@ -4,7 +4,8 @@ import subprocess
 import sys
 
 STEPS = ["01_embed.py", "02_evaluate.py", "03_clusters.py", "04_robustness.py", "05_sensitivity.py",
-         "06_hidden_concepts.py", "07_figures_tables.py"]
+         "06_hidden_concepts.py", "07_additional_analyses.py",
+         "08_figures_tables.py"]
 
 if __name__ == "__main__":
     here = os.path.dirname(os.path.abspath(__file__))
