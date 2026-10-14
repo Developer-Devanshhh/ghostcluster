@@ -111,6 +111,9 @@ guards against embedding term codes instead of names.
 Intermediate results (`descriptives.json`, `results_*.csv`, per-mention scores) are saved alongside.
 Random seeds are fixed. UMAP is not guaranteed to be bit-identical across library versions or hardware;
 the pinned versions in `requirements.txt` were used for the reported results.
+A complete rerun from the raw data into an empty output directory reproduces every main-text table
+exactly; the only differences (at most 0.011) are in HDBSCAN stability statistics, which depend on UMAP,
+and in top-1 similarities of one encoder that differ in the third decimal between GPU and CPU embeddings.
 
 On a laptop with an NVIDIA GeForce RTX 5060 (8 GB), the full run takes about one and a half hours.
 
