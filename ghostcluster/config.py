@@ -10,6 +10,9 @@ MEDDRA_DIR = os.path.join(DATA_DIR, "meddra")
 CADEC_DIR = os.path.join(DATA_DIR, "cadec")
 PSYTAR_XLSX = os.path.join(DATA_DIR, "psytar", "PsyTAR_dataset.xlsx")
 SMM4H_DIR = os.path.join(DATA_DIR, "smm4h")
+# Keep only current LLTs (needs the MSSO ASCII release, whose llt.asc has a currency flag).
+# Set GHOSTCLUSTER_CURRENT_LLTS=1 and use a fresh GHOSTCLUSTER_OUT directory to run the analysis this way.
+CURRENT_LLTS_ONLY = os.environ.get("GHOSTCLUSTER_CURRENT_LLTS", "0") == "1"
 
 # Generated outputs (embeddings, scores, results, figures, tables).
 OUT_DIR = os.environ.get("GHOSTCLUSTER_OUT", os.path.join(ROOT, "outputs"))

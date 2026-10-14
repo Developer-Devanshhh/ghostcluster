@@ -101,6 +101,10 @@ A correct run reproduces these values (`outputs/results_human_labels.csv`, `outp
 | String match, AUROC / AUPRC | 0.810 / 0.185 | 0.592 / 0.146 |
 | Supervised TF-IDF classifier, transferred from the other corpus, AUPRC | 0.069 | 0.161 |
 
+With the official MSSO ASCII release (`llt.asc`), setting `GHOSTCLUSTER_CURRENT_LLTS=1` (with a fresh
+`GHOSTCLUSTER_OUT` directory) restricts the reference set to current LLTs; the spreadsheet export used for
+the reported results carries no currency flag.
+
 Step 01 stops with an error if MedDRA term names do not retrieve themselves in embedding space, which
 guards against embedding term codes instead of names.
 

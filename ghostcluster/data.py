@@ -10,7 +10,7 @@ import re
 import numpy as np
 import pandas as pd
 
-from .config import CADEC_DIR, MEDDRA_DIR, OUT_DIR, PSYTAR_XLSX, SMM4H_DIR
+from .config import CADEC_DIR, CURRENT_LLTS_ONLY, MEDDRA_DIR, OUT_DIR, PSYTAR_XLSX, SMM4H_DIR
 
 HEADER_MARKER = "Extracted ADR"   # header line present in one SMM4H-2017 normalisation file
 
@@ -42,14 +42,20 @@ def _meddra_from_ascii(asc_dir):
     llts = read("llt.asc")
     pt = pd.DataFrame({"code": [int(p[0]) for p in pts], "name": [p[1].strip() for p in pts], "level": "PT"})
     llt_all = pd.DataFrame({"code": [int(p[0]) for p in llts], "name": [p[1].strip() for p in llts],
-                            "pt": [int(p[2]) for p in llts]})
+                            "pt": [int(p[2]) for p in llts],
+                            "current": [p[9].strip().upper() != "N" if len(p) > 9 else True for p in llts]})
     llt = llt_all[llt_all.code != llt_all.pt]          # llt.asc repeats every PT as its own LLT
+    if CURRENT_LLTS_ONLY:                              # field 10 of llt.asc is the LLT currency flag (Y/N)
+        llt = llt[llt.current]
     terms = pd.concat([pt, llt[["code", "name"]].assign(level="LLT")], ignore_index=True)
     return terms, llt[["code", "pt"]].rename(columns={"code": "llt"}).reset_index(drop=True)
 
 
 def _meddra_from_xlsx(path):
-    """Excel export with sheets _ID2NAME (Number, Name), _ID2HIERARCHY (ID, HIERARCHY) and _BROADER (ID, BROADER ID)."""
+    """Excel export with sheets _ID2NAME (Number, Name), _ID2HIERARCHY (ID, HIERARCHY) and _BROADER (ID, BROADER ID).
+
+    This export carries no LLT currency flag, so current and non-current LLTs are both returned.
+    """
     names = pd.read_excel(path, sheet_name="_ID2NAME", engine="openpyxl")
     hier = pd.read_excel(path, sheet_name="_ID2HIERARCHY", engine="openpyxl")
     broader = pd.read_excel(path, sheet_name="_BROADER", engine="openpyxl")

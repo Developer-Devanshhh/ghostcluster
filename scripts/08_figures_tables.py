@@ -244,56 +244,10 @@ def table_controls():
         "Analysis & AUROC & AUPRC & AUROC & AUPRC", lines, extra="\\setlength{\\tabcolsep}{4pt}\n"))
 
 
-def table_supervised():
-    s = read("results_supervised.csv")
-    x = read("results_transfer_extra.csv")
-    rows = [("Supervised TF-IDF classifier", "Supervised TF-IDF classifier"),
-            ("Supervised embedding classifier (BioLORD-2023)", "Supervised embedding classifier (BioLORD)"),
-            ("Hybrid (supervised)", "Hybrid (two encoders, top-1)"),
-            ("Hybrid, consensus features (length, string, four top-5 gaps)", "Hybrid (four encoders, top-5)"),
-            ("Length + consensus", "Length + consensus (supervised)"),
-            ("Consensus gap (label-free)", "Consensus gap (label-free)")]
-
-    def cell(m, setting, tr, te):
-        for d in (x, s):
-            hit = d[(d.method == m) & (d.train == tr) & (d.test == te) & d.setting.str.startswith(setting)]
-            if len(hit):
-                r = hit.iloc[0]
-                return f"{r.auprc:.3f} ({r.auroc:.2f})"
-        return "--"
-
-    lines = []
-    for m, name in rows:
-        cells = [cell(m, "within corpus", "cadec", "cadec"), cell(m, "within corpus", "psytar", "psytar"),
-                 cell(m, "across drugs", "atorvastatin", "diclofenac"), cell(m, "across drugs", "diclofenac", "atorvastatin"),
-                 cell(m, "transfer" if m in set(s.method) and m != "Consensus gap (label-free)" else "across corpora", "psytar", "cadec"),
-                 cell(m, "transfer" if m in set(s.method) and m != "Consensus gap (label-free)" else "across corpora", "cadec", "psytar")]
-        if m == "Consensus gap (label-free)":
-            cells[4] = cell(m, "transfer", "psytar", "cadec")
-            cells[5] = cell(m, "transfer", "cadec", "psytar")
-        line = f"{name} & " + " & ".join(cells)
-        lines.append((bold_row(line) if "label-free" in m else line) + r" \\")
-    prev = read("results_human_labels.csv").groupby("corpus").prevalence.first()
-    dp = x[x.setting.str.startswith("across drugs")].groupby("test").prevalence.first()
-    write("tab_supervised.tex", table(
-        r"Supervised detectors and the label-free consensus gap: AUPRC (AUROC). Within a corpus: five-fold "
-        r"cross-validation grouped by document. Across drugs: trained on CADEC posts about one drug and applied to "
-        r"posts about the other (same terminology and annotators). Across corpora: trained on all labels of one "
-        r"corpus and applied to the other, whose labels refer to a different terminology. Folds grouped by "
-        r"expression are reported in Supplementary Table~S19. The consensus gap uses no labels. Chance level: CADEC "
-        f"{prev['cadec']:.3f}, PsyTAR {prev['psytar']:.3f}, atorvastatin posts {dp['atorvastatin']:.3f}, "
-        f"diclofenac posts {dp['diclofenac']:.3f}.",
-        "tab:supervised", "@{}lcccccc@{}",
-        r" & \multicolumn{2}{c}{Within corpus} & \multicolumn{2}{c}{Across drugs (CADEC)} & \multicolumn{2}{c}{Across corpora} \\"
-        "\n" r"\cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(l){6-7}" "\n"
-        r"Detector & CADEC & PsyTAR & statin$\rightarrow$diclofenac & diclofenac$\rightarrow$statin & PsyTAR$\rightarrow$CADEC & CADEC$\rightarrow$PsyTAR",
-        lines, star=True, size=r"\footnotesize", extra="\\setlength{\\tabcolsep}{3pt}\n"))
-
-
 def table_operating():
     o = read("results_operating_points.csv")
     oc = read("results_operating_ci.csv")
-    order = [("String match (token-sort ratio)", "String match"), ("Dense normaliser confidence (SapBERT, top-1)", None),
+    order = [("String match (token-sort ratio)", "String match"), ("Dense normaliser confidence (SapBERT, top-1)", "Dense normaliser"),
              ("Hybrid (supervised)", "Hybrid"), ("Consensus gap (label-free)", "Consensus gap")]
     lines = []
     for m, cim in order:
@@ -318,31 +272,6 @@ def table_operating():
         r" & \multicolumn{3}{c}{CADEC} & \multicolumn{3}{c}{PsyTAR} \\" "\n" r"\cmidrule(lr){2-4}\cmidrule(l){5-7}" "\n"
         r"Score & P@100 & Read for R50 (\%) & Read for R80 (\%) & P@100 & Read for R50 (\%) & Read for R80 (\%)",
         lines, star=True, size=r"\footnotesize", extra="\\setlength{\\tabcolsep}{4pt}\n"))
-
-
-def table_hidden():
-    h = read("results_hidden_concepts.csv")
-    h = h[h.encoder == PRIMARY]
-    names = {"PT": "Single PTs (siblings kept)", "HLT": "Whole HLTs", "HLGT": "Whole HLGTs"}
-    lines = []
-    for corpus in ["smm4h", "cadec"]:
-        for reg in ["PT", "HLT", "HLGT"]:
-            d = h[(h.corpus == corpus) & (h.regime == reg)].sort_values("fraction")
-            first = NAME[corpus] if reg == "PT" else ""
-            lines.append(f"{first} & {names[reg]} & " + " & ".join(
-                f"${r.auroc:.3f} \\pm {r.auroc_sd:.3f}$ & {r.auprc:.3f} ({100 * r.positives:.0f}\\%)" for r in d.itertuples()) + r" \\")
-        if corpus == "smm4h":
-            lines.append(r"\midrule")
-    write("tab_hidden.tex", table(
-        r"Hidden-concept simulation. A random share of concepts is removed from MedDRA with all of their LLTs and "
-        r"descendant PTs; every distinct (expression, gold concept) pair is scored with the consensus gap against "
-        r"the reduced terminology, and pairs whose gold PT was removed are the positives. AUROC (mean $\pm$ s.d.\ "
-        r"over ten removals) and AUPRC (share of positive pairs). Per-encoder results are in Supplementary Table~S7.",
-        "tab:hidden", "@{}llcccccc@{}",
-        r" & & \multicolumn{2}{c}{10\% removed} & \multicolumn{2}{c}{20\% removed} & \multicolumn{2}{c}{30\% removed} \\"
-        "\n" r"\cmidrule(lr){3-4}\cmidrule(lr){5-6}\cmidrule(l){7-8}" "\n"
-        r"Corpus & Removed unit & AUROC & AUPRC & AUROC & AUPRC & AUROC & AUPRC",
-        lines, star=True, extra="\\setlength{\\tabcolsep}{4pt}\n"))
 
 
 def table_triage():
@@ -454,7 +383,7 @@ def supplementary():
                        "Corpus & Stratum & Score & Mentions & Prevalence & AUROC & AUPRC", lines, size=r"\scriptsize"))
 
     V = read("results_score_variants.csv")
-    lines = [f"{NAME[r.corpus]} & {r.variant} & {label(r.encoder) if r.encoder == PRIMARY else ENCODER_NAMES[r.encoder]} & {r.auroc:.3f} & {r.auprc:.3f} \\\\"
+    lines = [f"{NAME[r.corpus]} & {r.variant} & {label(r.encoder) if r.encoder == PRIMARY else ENCODER_NAMES.get(r.encoder, r.encoder.capitalize())} & {r.auroc:.3f} & {r.auprc:.3f} \\\\"
              for r in V.itertuples()]
     parts.append(table(r"Supplementary Table S5. Definition of the semantic gap: number of nearest terms averaged, "
                        r"concept-level aggregation (at most one similarity per parent PT) and terminology density "
@@ -471,7 +400,7 @@ def supplementary():
                        lines, size=r"\scriptsize"))
 
     h = read("results_hidden_concepts.csv")
-    lines = [f"{NAME[r.corpus]} & {r.regime} & {int(100 * r.fraction)}\\% & {label(r.encoder) if r.encoder == PRIMARY else ENCODER_NAMES[r.encoder]} & "
+    lines = [f"{NAME[r.corpus]} & {r.regime} & {int(100 * r.fraction)}\\% & {label(r.encoder) if r.encoder == PRIMARY else ENCODER_NAMES.get(r.encoder, r.encoder.capitalize())} & "
              f"${r.auroc:.3f} \\pm {r.auroc_sd:.3f}$ & ${r.auprc:.3f} \\pm {r.auprc_sd:.3f}$ \\\\" for r in h.itertuples()]
     parts.append(table(r"Supplementary Table S7. Hidden-concept simulation for every encoder (top-5 gap).",
                        "tab:s7", "@{}lllrrr@{}", "Corpus & Removed unit & Share & Encoder & AUROC & AUPRC", lines,
@@ -548,7 +477,8 @@ def supplementary():
                        r" & & \multicolumn{2}{c}{All mentions} & \multicolumn{2}{c}{Verbatim positives removed} \\"
                        "\n" r"\cmidrule(lr){3-4}\cmidrule(l){5-6}" "\n"
                        "Corpus & Score & AUROC & AUPRC & AUROC & AUPRC", lines, size=r"\scriptsize"))
-    write("supp_tables.tex", "\n".join(p.replace("[htbp!]", "[p]") for p in parts) + "\n" + supplementary_extra())
+    write("supp_tables.tex", "\n".join(p.replace("[htbp!]", "[p]") for p in parts) + "\n" + supplementary_extra()
+          + "\n" + supplementary_round2())
 
 
 def figure_learning():
@@ -580,7 +510,7 @@ def supplementary_extra():
     """Supplementary Tables S13-S20 (analyses added in revision)."""
     parts = []
     o = read("results_ood_scores.csv")
-    lines = [f"{NAME[r.corpus]} & {r.score} & {label(r.encoder) if r.encoder == PRIMARY else ENCODER_NAMES[r.encoder]} & {r.auroc:.3f} & {r.auprc:.3f} \\\\"
+    lines = [f"{NAME[r.corpus]} & {r.score} & {label(r.encoder) if r.encoder == PRIMARY else ENCODER_NAMES.get(r.encoder, r.encoder.capitalize())} & {r.auroc:.3f} & {r.auprc:.3f} \\\\"
              for r in o.itertuples()]
     parts.append(table(r"Supplementary Table S13. Alternative out-of-distribution scores. Density-normalised gap: the "
                        r"top-5 gap divided by the mean top-5 gap of the five nearest terms to their own neighbours "
@@ -646,6 +576,159 @@ def supplementary_extra():
     return "\n".join(p.replace("[htbp!]", "[p]") for p in parts)
 
 
+def table_primary():
+    p = read("results_primary_levels.csv")
+    mb = read("results_model_baselines.csv") if os.path.exists(os.path.join(OUT_DIR, "results_model_baselines.csv")) else None
+
+    def c(r, lvl):
+        v = getattr(r, f"{lvl}_auprc", np.nan)
+        if pd.isna(v):
+            return "--"
+        return f"{v:.3f} [{getattr(r, f'{lvl}_auprc_lo'):.2f}, {getattr(r, f'{lvl}_auprc_hi'):.2f}]"
+
+    order = ["Length (words)", "String match", "Length + string (supervised)", "Dense normaliser confidence",
+             "Hybrid (supervised)", "Consensus gap (label-free)"]
+    lines = []
+    for m in order:
+        cells = []
+        for corpus in CORPORA:
+            r = p[(p.corpus == corpus) & (p.method == m)].iloc[0]
+            cells += [c(r, "mention"), c(r, "distinct"), c(r, "lenadj")]
+        line = f"{m} & " + " & ".join(cells)
+        lines.append((bold_row(line) if "label-free" in m else line) + r" \\")
+        if m == "Dense normaliser confidence" and mb is not None:
+            for name, short in [("Cross-encoder re-ranker", "Cross-encoder re-ranker confidence"),
+                                ("Normaliser confidence: SapBERT fine-tuned", "Fine-tuned normaliser confidence")]:
+                cells = []
+                for corpus in CORPORA:
+                    r = mb[(mb.corpus == corpus) & mb.method.str.startswith(name)].iloc[0]
+                    cells += [f"{r.auprc:.3f}", "--", "--"]
+                lines.append(f"{short} & " + " & ".join(cells) + r" \\")
+    prev = read("results_human_labels.csv").groupby("corpus").prevalence.first()
+    write("tab_primary.tex", table(
+        r"Main results: AUPRC [95\% bootstrap CI] for detecting mentions that annotators left without a "
+        r"terminology concept, at three levels. Mentions: every mention (intervals over documents). Distinct: one row "
+        r"per normalised expression, positive when most of its mentions are (intervals over expressions). Length-adjusted: "
+        r"the score after removing its least-squares fit on log length, which uses no labels; not applicable to scores "
+        r"that already contain length. CADEC labels refer to MedDRA (chance level " + f"{prev['cadec']:.3f}" + r"); "
+        r"PsyTAR labels mark mentions without an exact SNOMED CT concept, a related but different construct (chance "
+        + f"{prev['psytar']:.3f}" + r"). Supervised rows are out-of-fold predictions. AUROC values and further "
+        r"baselines are given in Supplementary Tables~S1, S3 and S23.",
+        "tab:primary", "@{}lcccccc@{}",
+        r" & \multicolumn{3}{c}{CADEC (MedDRA)} & \multicolumn{3}{c}{PsyTAR (SNOMED CT proxy)} \\" "\n"
+        r"\cmidrule(lr){2-4}\cmidrule(l){5-7}" "\n"
+        r"Score & Mentions & Distinct & Length-adjusted & Mentions & Distinct & Length-adjusted",
+        lines, star=True, size=r"\footnotesize", extra="\\setlength{\\tabcolsep}{3pt}\n"))
+
+
+def table_supervised():
+    w = read("results_within_ci.csv")
+    x = read("results_transfer_ci.csv")
+    rows = ["Supervised TF-IDF classifier", "Supervised embedding classifier (BioLORD-2023)",
+            "Hybrid (two encoders, top-1)", "Hybrid (four encoders, top-5)", "Length + consensus (supervised)",
+            "Consensus gap (label-free)"]
+    cols = [("across drugs", "atorvastatin", "diclofenac"), ("across drugs", "diclofenac", "atorvastatin"),
+            ("across corpora", "psytar", "cadec"), ("across corpora", "cadec", "psytar"),
+            ("within corpus", "cadec", "cadec"), ("within corpus", "psytar", "psytar")]
+    d = pd.concat([w, x])
+    lines = []
+    for m in rows:
+        cells = []
+        for st, tr, te in cols:
+            r = d[(d.setting.str.startswith(st)) & (d.train == tr) & (d.test == te) & (d.method == m)].iloc[0]
+            mark = ""
+            if m != "Consensus gap (label-free)":
+                mark = r"$^{+}$" if r.cm_lo > 0 else (r"$^{-}$" if r.cm_hi < 0 else "")
+            cells.append(f"{r.auprc:.3f}{mark} [{r.auprc_lo:.2f}, {r.auprc_hi:.2f}]")
+        name = m.replace(" (BioLORD-2023)", " (BioLORD)")
+        line = f"{name} & " + " & ".join(cells)
+        lines.append((bold_row(line) if "label-free" in m else line) + r" \\")
+    pos = x.groupby("test").positives.first()
+    write("tab_supervised.tex", table(
+        r"Supervised detectors and the label-free consensus gap: AUPRC [95\% bootstrap CI over test documents]. "
+        r"Across drugs: trained on CADEC posts about one drug and applied to posts about the other (same terminology "
+        r"and annotators; " + f"{int(pos['diclofenac'])}" + r" and " + f"{int(pos['atorvastatin'])}" + r" positive "
+        r"mentions). Across corpora: trained on one corpus and applied to the other, whose labels refer to a "
+        r"different terminology. Within corpus: five-fold cross-validation grouped by document. $^{+}$/$^{-}$: the "
+        r"consensus is significantly better/worse than this detector (paired bootstrap interval of the AUPRC "
+        r"difference excludes zero; Supplementary Table~S25).",
+        "tab:supervised", "@{}lcccccc@{}",
+        r" & \multicolumn{2}{c}{Across drugs (CADEC)} & \multicolumn{2}{c}{Across corpora} & \multicolumn{2}{c}{Within corpus} \\"
+        "\n" r"\cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(l){6-7}" "\n"
+        r"Detector & statin$\rightarrow$diclofenac & diclofenac$\rightarrow$statin & PsyTAR$\rightarrow$CADEC & CADEC$\rightarrow$PsyTAR & CADEC & PsyTAR",
+        lines, star=True, size=r"\scriptsize", extra="\\setlength{\\tabcolsep}{2.5pt}\n"))
+
+
+def table_hidden():
+    h = read("results_hidden_concepts.csv")
+    names = {"PT": "Single PTs (siblings kept)", "HLT": "Whole HLTs", "HLGT": "Whole HLGTs"}
+    methods = [PRIMARY, "dense normaliser (SapBERT top-1)", "string"]
+    lines = []
+    for corpus in ["smm4h", "cadec"]:
+        for reg in ["PT", "HLT", "HLGT"]:
+            cells = []
+            for m in methods:
+                d = h[(h.corpus == corpus) & (h.regime == reg) & (h.encoder == m)].sort_values("fraction")
+                cells += [f"{v:.2f}" for v in d.auroc]
+            line = f"{NAME[corpus] if reg == 'PT' else ''} & {names[reg]} & " + " & ".join(cells) + r" \\"
+            lines.append(line)
+        if corpus == "smm4h":
+            lines.append(r"\midrule")
+    write("tab_hidden.tex", table(
+        r"Concept-removal simulation: AUROC (mean over ten random removals) for separating (expression, gold concept) "
+        r"pairs whose gold PT was removed from MedDRA, with all of its LLTs, from the remaining pairs, for 10, 20 and "
+        r"30\% of units removed. Standard deviations, AUPRC and per-encoder results are in Supplementary Table~S7.",
+        "tab:hidden", "@{}llccccccccc@{}",
+        r" & & \multicolumn{3}{c}{Consensus gap} & \multicolumn{3}{c}{Dense normaliser} & \multicolumn{3}{c}{String match} \\"
+        "\n" r"\cmidrule(lr){3-5}\cmidrule(lr){6-8}\cmidrule(l){9-11}" "\n"
+        r"Corpus & Removed unit & 10\% & 20\% & 30\% & 10\% & 20\% & 30\% & 10\% & 20\% & 30\%",
+        lines, star=True, size=r"\footnotesize", extra="\\setlength{\\tabcolsep}{4pt}\n"))
+
+
+def supplementary_round2():
+    parts = []
+    tri = open(os.path.join(TAB_DIR, "tab_triage.tex"), encoding="utf-8").read()
+    tri = tri.replace(r"\caption{Ghost Clusters as review units.", r"\caption{Supplementary Table S21. Ghost Clusters as review units.")
+    tri = tri.replace(r"\label{tab:triage}", r"\label{tab:s21}").replace("table*", "table").replace("[t]", "[p]")
+    parts.append(tri)
+    es = read("results_encoder_stability.csv")
+    lines = [f"{NAME[r.corpus]} & {r.variant.replace('spubmedbert', 'S-PubMedBERT').replace('sapbert', 'SapBERT').replace('biolord', 'BioLORD-2023').replace('mpnet', 'all-mpnet-base-v2')} & "
+             f"{r.spearman:.3f} & {pct(r.top200_overlap, 0)} & {r.auroc:.3f} & {r.auprc:.3f} \\\\" for r in es.itertuples()]
+    parts.append(table(r"Supplementary Table S22. Stability of the consensus to its encoders: leave-one-encoder-out "
+                       r"consensus, single encoders and z-score instead of rank averaging. Spearman correlation and "
+                       r"overlap of the 200 highest-ranked distinct expressions with the four-encoder consensus.",
+                       "tab:s22", "@{}llrrrr@{}", "Corpus & Variant & Spearman & Top-200 overlap & AUROC & AUPRC", lines,
+                       size=r"\scriptsize"))
+    if os.path.exists(os.path.join(OUT_DIR, "results_model_baselines.csv")):
+        mb = read("results_model_baselines.csv")
+        lines = [f"{NAME[r.corpus]} & {latex_escape(r.method)} & {r.auroc:.3f} & {r.auprc:.3f} \\\\" for r in mb.itertuples()]
+        parts.append(table(r"Supplementary Table S23. Model-based baselines. Cross-encoder: \texttt{cross-encoder/ms-marco-MiniLM-L-6-v2} "
+                           r"scores the expression against its 20 nearest BioLORD-2023 candidates; the gap is the "
+                           r"negative best score. Fine-tuned normaliser: SapBERT trained for one epoch with in-batch "
+                           r"negatives on the distinct SMM4H-2017 (mention, gold term) pairs, which carry normalisation "
+                           r"supervision but no no-concept labels; the gap is one minus the top-1 similarity to "
+                           r"MedDRA PTs and LLTs.", "tab:s23", "@{}llrr@{}", "Corpus & Score & AUROC & AUPRC", lines,
+                           size=r"\scriptsize"))
+    ea = read("results_error_analysis.csv").sort_values(["corpus", "kind", "count"], ascending=[True, True, False])
+    lines = [f"{NAME[r.corpus]} & {r.kind} & {r.category} & {r.count} \\\\" for r in ea.itertuples()]
+    parts.append(table(r"Supplementary Table S24. Rule-based error categories for the 100 highest-ranked distinct "
+                       r"expressions that annotators coded (false positives) and the 100 lowest-ranked expressions "
+                       r"they left without a concept (false negatives). Categories are assigned in the order listed "
+                       r"in the code: health-care use or context words; a word of five or more letters that is not a "
+                       r"MedDRA word but is close to one (misspelling or non-standard form); six or more words; "
+                       r"token-sort similarity of at least 90 to a MedDRA term; one or two words; other.",
+                       "tab:s24", "@{}lllr@{}", "Corpus & Error type & Category & Count", lines, size=r"\scriptsize"))
+    d = pd.concat([read("results_transfer_ci.csv"), read("results_within_ci.csv")])
+    d = d[d.method != "Consensus gap (label-free)"]
+    lines = [f"{r.setting} & {NAME.get(r.train, r.train)}$\\rightarrow${NAME.get(r.test, r.test)} & {r.method} & "
+             f"${r.consensus_minus:+.3f}$ [${r.cm_lo:+.3f}$, ${r.cm_hi:+.3f}$] & {r.cm_p:.3f} \\\\" for r in d.itertuples()]
+    parts.append(table(r"Supplementary Table S25. Paired AUPRC differences, consensus gap minus supervised detector, "
+                       r"with 95\% intervals and two-sided $p$-values from 1,000 paired bootstrap resamples of test "
+                       r"documents (no multiplicity adjustment).", "tab:s25", "@{}lllcr@{}",
+                       r"Setting & Train$\rightarrow$test & Detector & Difference [95\% CI] & $p$", lines, size=r"\scriptsize"))
+    return "\n".join(p if "[p]" in p else p.replace("[htbp!]", "[p]") for p in parts)
+
+
 def main():
     figure_curves()
     figure_effort()
@@ -653,6 +736,7 @@ def main():
     figure_learning()
     table_coverage()
     table_human()
+    table_primary()
     table_controls()
     table_supervised()
     table_operating()

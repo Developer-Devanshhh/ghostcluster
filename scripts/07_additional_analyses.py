@@ -10,10 +10,13 @@ D. Batch dependence of the rank-based consensus and a reference-batch version fo
 E. Spelling normalisation against the MedDRA vocabulary before scoring.
 F. Uncertainty of operating points; terminology-density strata with counts and intervals.
 G. Ward clustering on the concatenated embeddings of all encoders.
+H-L. Mention, distinct-expression and length-adjusted results; intervals for transfer; encoder stability;
+   rule-based error categories; cross-encoder and fine-tuned normaliser baselines.
 
 Outputs (outputs/): results_ood_scores.csv, results_bm25.csv, results_transfer_extra.csv,
 results_learning_curve.csv, results_batch.csv, results_spelling.csv, results_operating_ci.csv,
-results_density.csv, results_triage_concat.csv
+results_density.csv, results_triage_concat.csv, results_primary_levels.csv, results_transfer_ci.csv,
+results_encoder_stability.csv, results_model_baselines.csv, results_error_analysis.csv
 """
 import importlib.util
 import os
@@ -285,7 +288,7 @@ def operating_ci_and_density():
     for corpus in CORPORA:
         sc, _ = scores(corpus)
         y, g = sc.nil.values, sc.group.astype(str).values
-        for name, key in [("String match", "string"), ("Consensus gap", PRIMARY), ("Hybrid", "hybrid")]:
+        for name, key in [("String match", "string"), ("Consensus gap", PRIMARY), ("Hybrid", "hybrid"), ("Dense normaliser", "sapbert|max|PT+LLT")]:
             s = sc[key].values
 
             def ops(ix):
@@ -346,6 +349,252 @@ def concatenated_clustering():
                "captured_by_ranking", "ghosts_majority_unmappable"]].round(3).to_string(index=False))
 
 
+# ---------------------------------------------------------------------------------------------
+# Additions in the second revision round
+# ---------------------------------------------------------------------------------------------
+def length_residual(s, length):
+    """Remove the least-squares fit of a score on log length (no labels; fitted on the whole batch)."""
+    L = np.column_stack([np.ones(len(s)), np.log(length)])
+    return s - L @ np.linalg.lstsq(L, s, rcond=None)[0]
+
+
+def primary_levels():
+    """Mention-level, distinct-expression-level and length-adjusted results with bootstrap intervals."""
+    from ghostcluster.stats import bootstrap_metrics
+    rows = []
+    for corpus in CORPORA:
+        sc, _ = scores(corpus)
+        y, g = sc.nil.values, sc.group.astype(str).values
+        sc["length+string"] = grouped_oof(sc[["length", "string"]].values, y, g, logistic)
+        methods = {"Length (words)": "length", "String match": "string", "Length + string (supervised)": "length+string",
+                   "Dense normaliser confidence": "sapbert|max|PT+LLT", "Hybrid (supervised)": "hybrid",
+                   "Consensus gap (label-free)": PRIMARY}
+        sc["n"] = sc.text.map(norm)
+        d = sc.groupby("n").agg(nil=("nil", "mean"), length=("length", "first"),
+                                **{k: (k, "mean") for k in methods.values() if k != "length"})
+        yd = (d.nil >= 0.5).astype(int).values
+        for name, key in methods.items():
+            r = dict(corpus=corpus, method=name)
+            m = bootstrap_metrics(y, sc[key].values, g, np.random.default_rng(SEED))
+            r.update({f"mention_{k}": v for k, v in m.items()})
+            m = bootstrap_metrics(yd, d[key].values, d.index.values, np.random.default_rng(SEED))
+            r.update({f"distinct_{k}": v for k, v in m.items()})
+            if key not in ("length", "length+string", "hybrid"):
+                m = bootstrap_metrics(y, length_residual(sc[key].values, sc.length.values), g, np.random.default_rng(SEED))
+                r.update({f"lenadj_{k}": v for k, v in m.items()})
+            rows.append(r)
+    out = pd.DataFrame(rows)
+    out.to_csv(os.path.join(OUT_DIR, "results_primary_levels.csv"), index=False)
+    print(out[["corpus", "method", "mention_auprc", "distinct_auprc", "lenadj_auprc"]].round(3).to_string(index=False))
+
+
+def transfer_intervals():
+    """Bootstrap intervals (test documents) and paired differences with the consensus for every transfer cell."""
+    from ghostcluster.stats import bootstrap_metrics, paired_auprc_difference
+    data = {c: scores(c)[0] for c in CORPORA}
+    text = {c: np.array(d.text.map(norm)) for c, d in data.items()}
+    emb = {c: load(f"emb_biolord_{c}.npy")[d.ti.values] for c, d in data.items()}
+    hyb = ["length", "string"] + [f"{e}|max|PT+LLT" for e in ["spubmedbert", "sapbert"]]
+    hyb4 = ["length", "string"] + TOP5
+
+    def fit_predict(kind, Xs, ys, Xt, ts=None, tt=None):
+        if kind == "tfidf":
+            both = np.concatenate([ts, tt])
+            m = TextModel(both).fit(np.arange(len(ts)).reshape(-1, 1), ys)
+            return m.predict_proba(np.arange(len(ts), len(both)).reshape(-1, 1))[:, 1]
+        return logistic().fit(Xs, ys).predict_proba(Xt)[:, 1]
+
+    cells = []
+    sc = data["cadec"]
+    statin = sc.group.str.startswith("LIPITOR").values
+    for a, b, an, bn in [(statin, ~statin, "atorvastatin", "diclofenac"), (~statin, statin, "diclofenac", "atorvastatin")]:
+        cells.append(("across drugs (CADEC)", an, bn, sc[a], sc[b], text["cadec"][a], text["cadec"][b], emb["cadec"][a], emb["cadec"][b]))
+    for s_, t_ in [("cadec", "psytar"), ("psytar", "cadec")]:
+        cells.append(("across corpora", s_, t_, data[s_], data[t_], text[s_], text[t_], emb[s_], emb[t_]))
+    rows = []
+    for setting, sn, tn, S, T, ts, tt, es, et in cells:
+        y, g = T.nil.values, T.group.astype(str).values
+        preds = {
+            "Supervised TF-IDF classifier": fit_predict("tfidf", None, S.nil.values, None, ts, tt),
+            "Supervised embedding classifier (BioLORD-2023)": fit_predict("lr", es, S.nil.values, et),
+            "Hybrid (two encoders, top-1)": fit_predict("lr", S[hyb].values, S.nil.values, T[hyb].values),
+            "Hybrid (four encoders, top-5)": fit_predict("lr", S[hyb4].values, S.nil.values, T[hyb4].values),
+            "Length + consensus (supervised)": fit_predict("lr", S[["length", PRIMARY]].values, S.nil.values, T[["length", PRIMARY]].values),
+            "Consensus gap (label-free)": T[PRIMARY].values,
+        }
+        for name, p in preds.items():
+            m = bootstrap_metrics(y, p, g, np.random.default_rng(SEED))
+            r = dict(setting=setting, train=sn, test=tn, method=name, prevalence=y.mean(), positives=int(y.sum()), **m)
+            if name != "Consensus gap (label-free)":
+                d, lo, hi, pv = paired_auprc_difference(y, preds["Consensus gap (label-free)"], p, g, np.random.default_rng(SEED))
+                r.update(consensus_minus=d, cm_lo=lo, cm_hi=hi, cm_p=pv)
+            rows.append(r)
+    out = pd.DataFrame(rows)
+    out.to_csv(os.path.join(OUT_DIR, "results_transfer_ci.csv"), index=False)
+    print(out[["setting", "train", "test", "method", "auprc", "auprc_lo", "auprc_hi", "consensus_minus", "cm_lo", "cm_hi"]].round(3).to_string(index=False))
+
+
+def encoder_stability():
+    from scipy.stats import rankdata
+    rows = []
+    for corpus in CORPORA:
+        sc, texts = scores(corpus)
+        y, ix = sc.nil.values, sc.ti.values
+        gaps = {e: text_gaps(corpus, e)[0] for e in ENCODERS}
+        full = consensus_gap(list(gaps.values()))
+        top_full = set(np.argsort(-full)[:200])
+        rows.append(dict(corpus=corpus, variant="all four encoders (rank average)", spearman=1.0, top200_overlap=1.0, **metrics(y, full[ix])))
+        z = np.mean([(v - v.mean()) / v.std() for v in gaps.values()], 0)
+        rows.append(dict(corpus=corpus, variant="all four encoders (z-score average)", spearman=spearmanr(z, full)[0],
+                         top200_overlap=len(top_full & set(np.argsort(-z)[:200])) / 200, **metrics(y, z[ix])))
+        for e in ENCODERS:
+            rest = consensus_gap([gaps[k] for k in ENCODERS if k != e])
+            rows.append(dict(corpus=corpus, variant=f"without {e}", spearman=spearmanr(rest, full)[0],
+                             top200_overlap=len(top_full & set(np.argsort(-rest)[:200])) / 200, **metrics(y, rest[ix])))
+            rows.append(dict(corpus=corpus, variant=f"{e} alone", spearman=spearmanr(gaps[e], full)[0],
+                             top200_overlap=len(top_full & set(np.argsort(-gaps[e])[:200])) / 200, **metrics(y, gaps[e][ix])))
+    out = pd.DataFrame(rows)
+    out.to_csv(os.path.join(OUT_DIR, "results_encoder_stability.csv"), index=False)
+    print(out.round(3).to_string(index=False))
+
+
+def _encode_texts(model, texts, batch=256):
+    return model.encode(list(texts), batch_size=batch, convert_to_numpy=True, normalize_embeddings=True,
+                        show_progress_bar=False).astype(np.float32)
+
+
+def model_baselines():
+    """Cross-encoder re-ranker confidence and a normaliser fine-tuned on SMM4H-2017 MedDRA mappings."""
+    from sentence_transformers import CrossEncoder, SentenceTransformer, models
+    from ghostcluster.data import load_smm4h
+    terms = pd.read_csv(os.path.join(OUT_DIR, "meddra_terms.csv"))
+    names = terms.name.astype(str).values
+    rows = []
+
+    # (a) cross-encoder re-ranking of the 20 nearest BioLORD-2023 candidates
+    ce = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2", max_length=64, device="cpu")
+    ce_gap = {}
+    for corpus in CORPORA:
+        sc, texts = scores(corpus)
+        _, arg = top_k_similarities(load(f"emb_biolord_{corpus}.npy"), load("emb_biolord_meddra.npy"), k=20)
+        pairs = [(t, names[j]) for t, a in zip(texts, arg) for j in a]
+        s = np.asarray(ce.predict(pairs, batch_size=256, show_progress_bar=False)).reshape(len(texts), 20)
+        ce_gap[corpus] = -s.max(1)
+        rows.append(dict(corpus=corpus, method="Cross-encoder re-ranker confidence (MS MARCO MiniLM, top-20 BioLORD candidates)",
+                         **metrics(sc.nil.values, ce_gap[corpus][sc.ti.values])))
+    # (b) SapBERT fine-tuned on SMM4H-2017 mention -> gold term name pairs (normalisation supervision, no no-concept labels)
+    smm = load_smm4h()
+    name_of = dict(zip(terms.code, terms.name.astype(str)))
+    train = smm.dropna(subset=["gold"]).assign(term=lambda d: d.gold.map(name_of)).dropna(subset=["term"])
+    train = train.drop_duplicates(["text", "term"])
+    word = models.Transformer("cambridgeltl/SapBERT-from-PubMedBERT-fulltext", max_seq_length=32)
+    model = SentenceTransformer(modules=[word, models.Pooling(word.get_word_embedding_dimension(), pooling_mode="cls")], device="cpu")
+    for label, fine_tune in [("SapBERT, not fine-tuned (same pipeline)", False), ("SapBERT fine-tuned on SMM4H-2017 normalisation", True)]:
+        if fine_tune:
+            # One epoch of in-batch-negatives contrastive training (multiple-negatives ranking loss, scale 20).
+            import torch
+            torch.manual_seed(SEED)
+            opt = torch.optim.AdamW(model.parameters(), lr=2e-5)
+            order = np.random.default_rng(SEED).permutation(len(train))
+            a_txt, b_txt = train.text.values[order], train.term.values[order]
+            model.train()
+            for i in range(0, len(order), 32):
+                fa = {k: v for k, v in model.tokenize(list(a_txt[i:i + 32])).items()}
+                fb = {k: v for k, v in model.tokenize(list(b_txt[i:i + 32])).items()}
+                ea = torch.nn.functional.normalize(model(fa)["sentence_embedding"], dim=-1)
+                eb = torch.nn.functional.normalize(model(fb)["sentence_embedding"], dim=-1)
+                loss = torch.nn.functional.cross_entropy(20 * ea @ eb.T, torch.arange(len(ea)))
+                opt.zero_grad()
+                loss.backward()
+                opt.step()
+            model.eval()
+        M = _encode_texts(model, names)
+        for corpus in CORPORA:
+            sc, texts = scores(corpus)
+            top, _ = top_k_similarities(_encode_texts(model, texts), M, k=1)
+            rows.append(dict(corpus=corpus, method=f"Normaliser confidence: {label}", training_pairs=len(train) if fine_tune else 0,
+                             **metrics(sc.nil.values, (1 - top[:, 0])[sc.ti.values])))
+    out = pd.DataFrame(rows)
+    out.to_csv(os.path.join(OUT_DIR, "results_model_baselines.csv"), index=False)
+    print(out.round(3).to_string(index=False))
+
+
+CONTEXT = re.compile(r"\b(er|e\.r|hospital\w*|emergency|admitted|doctor|dr|physician|surgery|test\w*|blood work|prescri\w*|insurance|pharmac\w*|dose|dosage|mg)\b", re.I)
+
+
+def error_analysis():
+    """Rule-based categories for the 100 highest-ranked coded mentions and the 100 lowest-ranked no-concept mentions."""
+    terms = pd.read_csv(os.path.join(OUT_DIR, "meddra_terms.csv"))
+    vocab = {w for n in terms.name for w in re.findall(r"[a-z]+", str(n).lower())}
+    names = list(dict.fromkeys(norm(n) for n in terms.name))
+    rows, examples = [], []
+    for corpus in CORPORA:
+        sc, _ = scores(corpus)
+        d = sc.assign(n=sc.text.map(norm)).drop_duplicates("n")
+        fp = d[d.nil == 0].sort_values(PRIMARY, ascending=False).head(100)
+        fn = d[d.nil == 1].sort_values(PRIMARY).head(100)
+        for kind, part in [("false positive (top-ranked, coded)", fp), ("false negative (lowest-ranked, no concept)", fn)]:
+            for _, r in part.iterrows():
+                words = re.findall(r"[a-z]+", r.n)
+                best = process.extractOne(r.n, names, scorer=fuzz.token_sort_ratio)[1]
+                if CONTEXT.search(r.n):
+                    cat = "health-care use or context"
+                elif any(len(w) >= 5 and w not in vocab and process.extractOne(w, vocab, scorer=fuzz.ratio, score_cutoff=85) for w in words):
+                    cat = "misspelling or non-standard word form"
+                elif len(words) >= 6:
+                    cat = "long description (6+ words)"
+                elif best >= 90:
+                    cat = "near-verbatim MedDRA term"
+                elif len(words) <= 2:
+                    cat = "short expression (1-2 words)"
+                else:
+                    cat = "other"
+                rows.append(dict(corpus=corpus, kind=kind, category=cat))
+                examples.append(dict(corpus=corpus, kind=kind, category=cat, text=r.text))
+    out = pd.DataFrame(rows).value_counts().rename("count").reset_index()
+    out.to_csv(os.path.join(OUT_DIR, "results_error_analysis.csv"), index=False)
+    pd.DataFrame(examples).to_csv(os.path.join(OUT_DIR, "error_examples.csv"), index=False)
+    print(out.sort_values(["corpus", "kind", "count"], ascending=[True, True, False]).to_string(index=False))
+
+
+def within_intervals():
+    """Within-corpus, document-grouped out-of-fold predictions with bootstrap intervals and paired differences."""
+    from ghostcluster.stats import bootstrap_metrics, paired_auprc_difference
+    hyb = ["length", "string"] + [f"{e}|max|PT+LLT" for e in ["spubmedbert", "sapbert"]]
+    hyb4 = ["length", "string"] + TOP5
+    rows = []
+    for c in CORPORA:
+        sc, _ = scores(c)
+        y, g = sc.nil.values, sc.group.astype(str).values
+        tx = np.array(sc.text.map(norm))
+        preds = {
+            "Supervised TF-IDF classifier": grouped_oof(np.arange(len(y)).reshape(-1, 1), y, g, lambda: TextModel(tx)),
+            "Supervised embedding classifier (BioLORD-2023)": grouped_oof(load(f"emb_biolord_{c}.npy")[sc.ti.values], y, g, logistic),
+            "Hybrid (two encoders, top-1)": sc.hybrid.values,
+            "Hybrid (four encoders, top-5)": grouped_oof(sc[hyb4].values, y, g, logistic),
+            "Length + consensus (supervised)": grouped_oof(sc[["length", PRIMARY]].values, y, g, logistic),
+            "Consensus gap (label-free)": sc[PRIMARY].values,
+        }
+        for name, p in preds.items():
+            r = dict(setting="within corpus", train=c, test=c, method=name, prevalence=y.mean(), positives=int(y.sum()),
+                     **bootstrap_metrics(y, p, g, np.random.default_rng(SEED)))
+            if name != "Consensus gap (label-free)":
+                d, lo, hi, pv = paired_auprc_difference(y, preds["Consensus gap (label-free)"], p, g, np.random.default_rng(SEED))
+                r.update(consensus_minus=d, cm_lo=lo, cm_hi=hi, cm_p=pv)
+            rows.append(r)
+    out = pd.DataFrame(rows)
+    out.to_csv(os.path.join(OUT_DIR, "results_within_ci.csv"), index=False)
+    print(out[["test", "method", "auprc", "auprc_lo", "auprc_hi", "consensus_minus", "cm_lo", "cm_hi"]].round(3).to_string(index=False))
+
+
+def round2():
+    print("== H. primary levels"); primary_levels()
+    print("== I. transfer intervals"); transfer_intervals(); within_intervals()
+    print("== J. encoder stability"); encoder_stability()
+    print("== K. error analysis"); error_analysis()
+    print("== L. model baselines"); model_baselines()
+
+
 def main():
     print("== A. OOD scores"); ood_scores()
     print("== B. BM25"); bm25()
@@ -354,6 +603,7 @@ def main():
     print("== F. operating CIs and density"); operating_ci_and_density()
     print("== G. concatenated clustering"); concatenated_clustering()
     print("== E. spelling"); spelling()
+    round2()
 
 
 if __name__ == "__main__":
