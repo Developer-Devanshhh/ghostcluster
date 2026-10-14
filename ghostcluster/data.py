@@ -87,6 +87,23 @@ def load_meddra():
     return terms, llt2pt
 
 
+def load_meddra_hierarchy():
+    """PT -> HLT -> HLGT links as a DataFrame with columns pt, hlt, hlgt (MedDRA is multi-axial)."""
+    asc = glob.glob(os.path.join(MEDDRA_DIR, "**", "mdhier.asc"), recursive=True)
+    if asc:
+        rows = [line.split("$") for line in open(asc[0], encoding="utf-8", errors="replace")]
+        return pd.DataFrame({"pt": [int(r[0]) for r in rows], "hlt": [int(r[1]) for r in rows],
+                             "hlgt": [int(r[2]) for r in rows]}).drop_duplicates()
+    xlsx = glob.glob(os.path.join(MEDDRA_DIR, "*.xlsx"))[0]
+    hier = pd.read_excel(xlsx, sheet_name="_ID2HIERARCHY", engine="openpyxl")
+    level = dict(zip(hier.ID, hier.HIERARCHY.str.replace("HGLT", "HLGT")))
+    b = pd.read_excel(xlsx, sheet_name="_BROADER", engine="openpyxl")
+    b = b.assign(a=b.ID.map(level), c=b["BROADER ID"].map(level))
+    pt_hlt = b[(b.a == "PT") & (b.c == "HLT")][["ID", "BROADER ID"]].set_axis(["pt", "hlt"], axis=1)
+    hlt_hlgt = b[(b.a == "HLT") & (b.c == "HLGT")][["ID", "BROADER ID"]].set_axis(["hlt", "hlgt"], axis=1)
+    return pt_hlt.merge(hlt_hlgt, on="hlt").drop_duplicates().reset_index(drop=True)
+
+
 # ---------------------------------------------------------------------------------------------
 # Corpora
 # ---------------------------------------------------------------------------------------------
@@ -100,7 +117,8 @@ def _cadec_root():
 def load_cadec():
     """CADEC v2 ADR spans from the MedDRA annotation layer.
 
-    nil = 1 when the annotators marked the span CONCEPT_LESS (no MedDRA concept fits).
+    nil = 1 when the annotators marked the span CONCEPT_LESS (no MedDRA concept fits); gold is the
+    MedDRA code of spans normalised to a single concept (NaN otherwise).
     Only spans whose entity type in the original layer is ADR are kept.
     """
     root = _cadec_root()
@@ -120,7 +138,9 @@ def load_cadec():
                 p = line.rstrip("\n").split("\t")
                 if len(p) < 3:
                     continue
+                codes = p[1].split()[0] if "+" not in p[1] else ""
                 rows.append(dict(post_id=pid, text=p[2].strip(), nil=int("CONCEPT_LESS" in p[1]),
+                                 gold=int(codes) if codes.isdigit() else np.nan,
                                  etype=etype.get((pid, norm(p[2])), "?")))
     df = pd.DataFrame(rows)
     return df[df.etype == "ADR"].drop(columns="etype").reset_index(drop=True)

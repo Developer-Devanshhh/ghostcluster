@@ -5,7 +5,7 @@ import pandas as pd
 import umap
 from sklearn.cluster import AgglomerativeClustering
 
-from .config import GHOST_QUANTILE, HDBSCAN_PARAMS, MIN_CLUSTER_SIZE_GHOST, UMAP_PARAMS
+from .config import GHOST_QUANTILE, HDBSCAN_PARAMS, MIN_CLUSTER_SIZE_GHOST, UMAP_PARAMS, WARD_MEAN_SIZE
 
 
 def umap_project(E, seed):
@@ -17,8 +17,13 @@ def hdbscan_labels(X, **params):
 
 
 def hdbscan_after_umap(E, seed):
-    """The original configuration: UMAP to five dimensions, then HDBSCAN. Noise points get label -1."""
+    """UMAP to five dimensions, then HDBSCAN. Noise points get label -1."""
     return hdbscan_labels(umap_project(E, seed))
+
+
+def ward_k(n_expressions, mean_size=WARD_MEAN_SIZE):
+    """Number of Ward clusters for a corpus: fixed in advance by the intended size of a review unit."""
+    return max(2, int(round(n_expressions / mean_size)))
 
 
 def ward_labels(E, k):

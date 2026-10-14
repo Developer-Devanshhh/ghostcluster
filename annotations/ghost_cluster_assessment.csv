@@ -1,0 +1,17 @@
+corpus,cluster,first_example,closest_adequate_meddra_term,gap_type
+cadec,135,felt like an old woman,none (nearest: Senility; Elderly),concept gap
+cadec,72,cannot walk more than 5 yards,Walking difficulty (broader),granularity gap
+cadec,80,hardly lift my arms,Weakness of arms (impairment rather than activity),granularity gap
+cadec,118,unable to get out of bed,Bedridden (stronger),granularity gap
+cadec,44,"I may need to go to the restroom, but when I do I can't",-,heterogeneous
+cadec,175,throw up,Vomited,surface variation
+cadec,73,cuts on my hands,-,heterogeneous
+cadec,183,diahrea,Diarrhoea,surface variation
+psytar,116,er,Emergency care (health-care use; not an ADE),context
+psytar,49,spacey,Spaced out (LLT; no SNOMED CT code),terminology-specific
+psytar,143,feeling of not caring about anything,Apathy; Indifference,vocabulary gap
+psytar,108,speeding,-,heterogeneous
+psytar,96,could not get out of bed,Bedridden (stronger),granularity gap
+psytar,57,hospitalized,Hospitalisation (health-care use),context
+psytar,95,zombie like feeling,Felt like a zombie (LLT; no SNOMED CT code),terminology-specific
+psytar,23,wanted to kill myself,Suicidal ideation,vocabulary gap

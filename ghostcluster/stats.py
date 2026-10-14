@@ -28,7 +28,7 @@ def bootstrap_metrics(y, s, groups, rng, n=N_BOOTSTRAP):
 
 
 def paired_auprc_difference(y, s1, s2, groups, rng, n=N_BOOTSTRAP):
-    """Mean and 95% interval of AUPRC(s1) - AUPRC(s2) over paired document-level resamples."""
+    """Mean, 95% interval and two-sided bootstrap p-value of AUPRC(s1) - AUPRC(s2) (paired document resamples)."""
     y = np.asarray(y)
     d, draws = [], _resample(groups, rng)
     for _ in range(n):
@@ -36,4 +36,6 @@ def paired_auprc_difference(y, s1, s2, groups, rng, n=N_BOOTSTRAP):
         if y[ix].min() == y[ix].max():
             continue
         d.append(average_precision_score(y[ix], s1[ix]) - average_precision_score(y[ix], s2[ix]))
-    return float(np.mean(d)), float(np.percentile(d, 2.5)), float(np.percentile(d, 97.5))
+    d = np.asarray(d)
+    p = min(1.0, 2 * min((d <= 0).mean(), (d >= 0).mean()) + 1 / len(d))
+    return float(d.mean()), float(np.percentile(d, 2.5)), float(np.percentile(d, 97.5)), float(p)

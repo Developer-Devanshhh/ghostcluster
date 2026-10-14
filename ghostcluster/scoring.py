@@ -1,6 +1,7 @@
 """Gap scores: semantic distance and lexical distance to the terminology."""
 import numpy as np
 from rapidfuzz import fuzz, process
+from scipy.stats import rankdata
 
 from .data import norm
 
@@ -23,6 +24,29 @@ def semantic_gap(Q, M, k=5):
     """g_i = 1 - mean of the k largest cosine similarities (Eq. 1); k=1 gives the max-similarity variant."""
     top, _ = top_k_similarities(Q, M, k=k)
     return 1.0 - top[:, :k].mean(1)
+
+
+def consensus_gap(gaps):
+    """Label-free consensus (Eq. 2): mean over encoders of the percentile rank of each encoder's gap score.
+
+    gaps is a list of arrays, one per encoder, over the same expressions. Ranks make the encoders'
+    differently scaled similarities comparable without any fitted parameter.
+    """
+    return np.mean([rankdata(g) / len(g) for g in gaps], axis=0)
+
+
+def concept_level_gap(Q, M, parent, k=5, pool=50):
+    """Gap over distinct concepts: each LLT counts towards its parent PT, at most once per PT.
+
+    parent[j] is the PT code of terminology row j (a PT is its own parent). The k largest similarities
+    are taken over distinct parents among the `pool` nearest terms.
+    """
+    top, arg = top_k_similarities(Q, M, k=pool)
+    out = np.empty(len(Q))
+    for i in range(len(Q)):
+        _, first = np.unique(parent[arg[i]], return_index=True)
+        out[i] = 1.0 - np.sort(top[i, first])[::-1][:k].mean()
+    return out
 
 
 def lexical_gap(texts, term_names, batch=200):

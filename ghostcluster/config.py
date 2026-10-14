@@ -26,7 +26,9 @@ ENCODERS = {
     "biolord": ("FremyCompany/BioLORD-2023", "st"),
     "mpnet": ("sentence-transformers/all-mpnet-base-v2", "st"),
 }
-# Encoders inside the primary (hybrid) configuration. Fixed before the other encoders were evaluated.
+# Primary score: label-free consensus of the top-5 PT+LLT gap scores of all encoders (manuscript, Eq. 2).
+PRIMARY = "consensus"
+# Encoders whose maximum-similarity gaps enter the supervised hybrid (secondary analysis).
 HYBRID_ENCODERS = ["spubmedbert", "sapbert"]
 # Encoder whose embeddings are clustered.
 CLUSTER_ENCODER = "spubmedbert"
@@ -38,6 +40,7 @@ ENCODER_NAMES = {"spubmedbert": "S-PubMedBERT", "sapbert": "SapBERT",
 UMAP_PARAMS = dict(n_components=5, n_neighbors=15, min_dist=0.0)
 HDBSCAN_PARAMS = dict(min_cluster_size=7, min_samples=7, cluster_selection_method="eom")
 HDBSCAN_GRID = dict(min_cluster_size=[7, 10, 15, 20], min_samples=[5, 7, 10], cluster_selection_method=["eom", "leaf"])
+WARD_MEAN_SIZE = 20       # Ward: K = round(distinct expressions / WARD_MEAN_SIZE), one review unit ~ 20 expressions
 GHOST_QUANTILE = 0.75      # Ghost Clusters: clusters whose mean gap score exceeds this quantile
 MIN_CLUSTER_SIZE_GHOST = 3
 
