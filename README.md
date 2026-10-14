@@ -2,7 +2,7 @@
 
 Code for the manuscript
 
-> **GhostCluster: Label-Free Triage of Patient-Reported Adverse Drug Event Expressions Poorly Covered by MedDRA**
+> **GhostCluster: Unsupervised Detection of Patient-Reported Adverse Drug Event Expressions Poorly Covered by MedDRA**
 > Devansh Verma and Kalyanaraman Pattabiraman
 > School of Computer Science and Engineering, Vellore Institute of Technology, Vellore, India
 

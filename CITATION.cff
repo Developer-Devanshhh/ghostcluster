@@ -1,6 +1,6 @@
 cff-version: 1.2.0
 message: "If you use this software, please cite it as below."
-title: "GhostCluster: label-free triage of patient-reported adverse drug event expressions poorly covered by MedDRA"
+title: "GhostCluster: unsupervised detection of patient-reported adverse drug event expressions poorly covered by MedDRA"
 version: 1.0.0
 date-released: 2026-10-13
 license: MIT
